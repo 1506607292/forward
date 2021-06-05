@@ -1,0 +1,30 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/sunwenli/Desktop/Code/CLionProjects/server/main.cpp
+cstring
+-
+sys/socket.h
+-
+netinet/in.h
+-
+unistd.h
+-
+cstdlib
+-
+thread
+-
+iostream
+-
+vector
+-
+fstream
+-
+sstream
+-
+
