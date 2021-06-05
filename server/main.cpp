@@ -8,107 +8,139 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <pthread.h>
 
+int _bufSize;
+int _maxConnNum;
+int _listenFD;
+
+int _serverPort;
+sockaddr_in _serverAddr;
+
+sockaddr_in _clientAddr;
+int _clientConn;
+socklen_t _clientAddrLen;
+std::string _recvBuff;
+std::string _sendBuff;
+std::mutex sendM,recvM;
 class Server {
 private:
-    int _bufSize;
-    int _maxConnNum;
-    int _listenFD;
-
-    int _serverPort;
-    sockaddr_in _serverAddr;
-
-    int _clientPort;
-    sockaddr_in _clientAddr;
-    int _clientConn;
-    socklen_t _clientAddrLen;
 public:
 
     Server() {
-        this->_bufSize = 1024 * 16;
-        this->_maxConnNum = 1024;
-        this->_serverPort = 7005;
-        this->_listenFD = socket(AF_INET, SOCK_STREAM, 0);
-        if (this->_listenFD == -1) {
+        _bufSize = 1024 * 16;
+        _maxConnNum = 1024;
+        _serverPort = 7004;
+        _listenFD = socket(AF_INET, SOCK_STREAM, 0);
+        if (_listenFD == -1) {
             puts("Error: socket\n");
             exit(-1);
         }
-        this->_serverAddr.sin_family = AF_INET;
-        this->_serverAddr.sin_port = htons(this->_serverPort);
-        this->_serverAddr.sin_addr.s_addr = INADDR_ANY;
-        if (bind(this->_listenFD, (struct sockaddr *) &this->_serverAddr, sizeof(struct sockaddr_in)) == -1) {
+        _serverAddr.sin_family = AF_INET;
+        _serverAddr.sin_port = htons(_serverPort);
+        _serverAddr.sin_addr.s_addr = INADDR_ANY;
+        if (bind(_listenFD, (struct sockaddr *) &_serverAddr, sizeof(struct sockaddr_in)) == -1) {
             puts("Error: bind\n");
             exit(-1);
         }
-        if (listen(this->_listenFD, this->_maxConnNum) == -1) {
+        if (listen(_listenFD, _maxConnNum) == -1) {
             puts("Error: listen\n");
             exit(-1);
         }
         puts("server start successfully");
     }
 
-    [[nodiscard]] std::string _recv(int conn) const {
-        char *_buf = new char[this->_bufSize];
+    static std::string _recv(int conn) {
+        char *buf = new char[_bufSize];
         std::string data;
-        while (recv(conn, _buf, this->_bufSize, 0) == this->_bufSize) {
-            data += _buf;
+        while (recv(conn, buf, _bufSize, 0) == _bufSize) {
+            data += buf;
         }
-        data += _buf;
-        delete[] _buf;
+        data += buf;
+        delete[] buf;
         return data;
     }
 
-    void *check() {
-        char *_buf = new char[_bufSize];
-        if (recv(_clientConn, _buf, this->_bufSize, 0) < 0) {
-            puts("break off");
-        } else { puts("connect"); }
-    }
-
-    void _send(int conn, const std::string &data) const {
-        char *_buf = new char[this->_bufSize];
+    static void _send(int conn, const std::string &data) {
+        char *buf = new char[_bufSize];
         int i;
-        for (i = 0; i < data.size(); i += this->_bufSize) {
+        for (i = 0; i < data.size(); i += _bufSize) {
             if (i + _bufSize > data.size()) {
-                strcpy(_buf, data.substr(i, data.size() - i).c_str());
-                send(conn, _buf, strlen(_buf) * sizeof(char), 0);
+                strcpy(buf, data.substr(i, data.size() - i).c_str());
+                send(conn, buf, strlen(buf) * sizeof(char), 0);
                 break;
             }
-            strcpy(_buf, data.substr(i, this->_bufSize).c_str());
-            send(conn, _buf, this->_bufSize, 0);
+            strcpy(buf, data.substr(i, _bufSize).c_str());
+            send(conn, buf, _bufSize, 0);
         }
-        delete[] _buf;
+        delete[] buf;
+    }
+
+    static void sendToClient() {
+        while (true) {
+            sendM.lock();
+            if (_sendBuff != "") {
+                _send(_clientConn, _sendBuff);
+                _sendBuff = "";
+            }
+            sendM.unlock();
+        }
+    }
+
+    static void recvFromClient() {
+        while (true) {
+            recvM.lock();
+            _recvBuff += _recv(_clientConn);
+            recvM.unlock();
+        }
+    }
+
+    static void tran() {
     }
 
     void clientConn() {
-        this->_clientAddrLen = sizeof(this->_clientAddr);
-        this->_clientConn = accept(this->_listenFD, (struct sockaddr *) &this->_clientAddr, &this->_clientAddrLen);
-        if (this->_clientConn < 0) {
+        _clientAddrLen = sizeof(_clientAddr);
+        _clientConn = accept(_listenFD, (struct sockaddr *) &_clientAddr, &_clientAddrLen);
+        if (_clientConn < 0) {
             exit(-1);
         }
         puts("client connected");
-//        std::thread th(check());
     }
-
-    void run() {
-        clientConn();
+    static void test(int conn){
+        recvM.lock();
+        _send(conn, _recvBuff);
+        _recvBuff = "";
+        recvM.unlock();
+}
+    static void browser(){
         while (true) {
             int conn;
             sockaddr_in clientAddr{};
             socklen_t clientAddrLen = sizeof(clientAddr);
-            conn = accept(this->_listenFD, (struct sockaddr *) &clientAddr, &clientAddrLen);
+            conn = accept(_listenFD, (struct sockaddr *) &clientAddr, &clientAddrLen);
             if (conn < 0) {
                 exit(-1);
             }
-            std::string result = _recv(conn);
-            puts(result.c_str());
-
-            _send(_clientConn, result);
-            result = _recv(_clientConn);
-
-            _send(conn, result);
+            sendM.lock();
+            _sendBuff += _recv(conn); // 浏览器第一次请求
+            sendM.unlock();
+            std::thread th(test,conn);
+            th.detach();
+            sleep(1);
             close(conn);
         }
+}
+    void run() {
+        clientConn();
+        std::thread th(sendToClient);
+        std::thread th2(recvFromClient);
+        std::thread th3(tran);
+        std::thread th4(browser);
+        th.join();
+        th2.join();
+        th3.join();
+        th4.join();
+
     }
 
     ~Server() {

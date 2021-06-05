@@ -14,20 +14,18 @@
 class Client {
 private:
     struct sockaddr_in server_addr;
-    int serverFD, numbytes;
-    char *buf;
+    int serverFD;
     const char *serverAddr = "127.0.0.1";
     int _bufSize;
 public:
     Client() {
         _bufSize = 16*1024;
-        buf = new char[_bufSize];
         if ((serverFD = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
             perror("socket");
             exit(-1);
         }
         server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(7005);
+        server_addr.sin_port = htons(7004);
         server_addr.sin_addr.s_addr = inet_addr(serverAddr);
         if (connect(serverFD, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_in)) == -1) {
             perror("connect error");
@@ -35,38 +33,64 @@ public:
         }
     }
     void run(){
-        while(1){
-            puts(_recv(serverFD).c_str());
-            _send(serverFD,"received info !!!!");
+        int clientFD;
+        if ((clientFD = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+            perror("socket");
+            exit(-1);
         }
+        sockaddr_in webserver_addr;
+        webserver_addr.sin_family = AF_INET;
+        webserver_addr.sin_port = htons(8002);//web server port
+        webserver_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  //web server host
+        if (connect(clientFD, (struct sockaddr *) &webserver_addr, sizeof(struct sockaddr_in)) == -1) {
+            perror("connect error");
+            exit(-1);
+        }
+        while(1){
+            std::string result = _recv(serverFD); // server 来第一次
+            _send(clientFD,result); // 发送到webserver
+            result = _recv(clientFD);//response 200 ok
+            puts("request");
+            puts(result.c_str());
+            puts("response");
+            puts(result.c_str());
+            _send(serverFD,result); // 给server response 200 ok
+
+            result = _recv(clientFD);// 从web 拿到第二次response
+
+            puts("response");
+            puts(result.c_str());
+            _send(serverFD,result);// 发给server 拿到第二次response
+        }
+        close(clientFD);
     }
     ~Client() {
         close(serverFD);
     }
     [[nodiscard]] std::string _recv(int conn) const {
-        char *_buf = new char[this->_bufSize];
+        char *buf = new char[this->_bufSize];
         std::string data;
-        while (recv(conn, _buf, this->_bufSize, 0) == this->_bufSize) {
-            data += _buf;
+        while (recv(conn, buf, this->_bufSize, 0) == this->_bufSize) {
+            data += buf;
         }
-        data += _buf;
-        delete[] _buf;
+        data += buf;
+        delete[] buf;
         return data;
     }
 
     void _send(int conn, const std::string &data) const {
-        char *_buf = new char[this->_bufSize];
+        char *buf = new char[this->_bufSize];
         int i;
         for (i = 0; i < data.size(); i += this->_bufSize) {
             if(i+_bufSize>data.size()){
-                strcpy(_buf, data.substr(i, data.size() - i).c_str());
-                send(conn, _buf, strlen(_buf) * sizeof(char), 0);
+                strcpy(buf, data.substr(i, data.size() - i).c_str());
+                send(conn, buf, strlen(buf) * sizeof(char), 0);
                 break;
             }
-            strcpy(_buf, data.substr(i, this->_bufSize).c_str());
-            send(conn, _buf, this->_bufSize, 0);
+            strcpy(buf, data.substr(i, this->_bufSize).c_str());
+            send(conn, buf, this->_bufSize, 0);
         }
-        delete[] _buf;
+        delete[] buf;
     }
 };
 

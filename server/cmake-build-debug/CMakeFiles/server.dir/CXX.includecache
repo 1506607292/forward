@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/Users/sunwenli/Desktop/Code/CLionProjects/server/main.cpp
+/Users/sunwenli/Desktop/Code/CLionProjects/forward/server/main.cpp
 cstring
 -
 sys/socket.h
@@ -26,5 +26,7 @@ vector
 fstream
 -
 sstream
+-
+pthread.h
 -
 
